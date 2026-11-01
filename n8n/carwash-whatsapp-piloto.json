@@ -1,0 +1,973 @@
+{
+  "name": "Car Wash Pro — WhatsApp Piloto",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "description": "Flujo piloto WhatsApp (Twilio) + AI + API Railway + Stripe. Importa, conecta credentials y activa."
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Setup rápido\n1. Crea credentials:\n- **Header Auth** `CarWash API`: Name=`x-api-key`, Value=`N8N_API_KEY` de Railway\n- **OpenAI**\n- **Twilio** (o HTTP Basic SID:TOKEN)\n- **Stripe** (secret test)\n2. Variables del workflow (Settings → Variables) o edita el nodo **Config**:\n- `API_BASE` = https://api-production-675c4.up.railway.app\n- `TWILIO_FROM` = whatsapp:+1...\n- `TWILIO_ACCOUNT_SID`\n3. Activa el workflow y copia URLs de webhooks:\n- WhatsApp → Twilio console\n- Stripe → Stripe webhooks (`checkout.session.completed`)\n4. En Railway actualiza `WHATSAPP_START_URL`",
+        "height": 420,
+        "width": 460
+      },
+      "id": "note-setup",
+      "name": "Sticky Note Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-640, -200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "carwash-whatsapp",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wh-twilio",
+      "name": "Webhook Twilio WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-320, 200],
+      "webhookId": "carwash-whatsapp"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "carwash-stripe",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wh-stripe",
+      "name": "Webhook Stripe Paid",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-320, 720],
+      "webhookId": "carwash-stripe"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api",
+              "name": "API_BASE",
+              "value": "https://api-production-675c4.up.railway.app",
+              "type": "string"
+            },
+            {
+              "id": "from",
+              "name": "TWILIO_FROM",
+              "value": "whatsapp:+14155238886",
+              "type": "string"
+            },
+            {
+              "id": "sid",
+              "name": "TWILIO_ACCOUNT_SID",
+              "value": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "string"
+            },
+            {
+              "id": "currency",
+              "name": "CURRENCY",
+              "value": "mxn",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cfg-wa",
+      "name": "Config WA",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-80, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api2",
+              "name": "API_BASE",
+              "value": "https://api-production-675c4.up.railway.app",
+              "type": "string"
+            },
+            {
+              "id": "from2",
+              "name": "TWILIO_FROM",
+              "value": "whatsapp:+14155238886",
+              "type": "string"
+            },
+            {
+              "id": "sid2",
+              "name": "TWILIO_ACCOUNT_SID",
+              "value": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cfg-stripe",
+      "name": "Config Stripe",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-80, 720]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $json.body || $json;\nconst from = String(body.From || body.from || '').trim();\nconst to = String(body.To || body.to || '').trim();\nconst text = String(body.Body || body.body || body.MessageSid && body.Body || '').trim();\nconst numMedia = Number(body.NumMedia || 0);\nconst media = [];\nfor (let i = 0; i < numMedia; i++) {\n  const url = body[`MediaUrl${i}`];\n  if (url) media.push(url);\n}\nconst waPhone = from.replace(/^whatsapp:/, '');\nreturn {\n  json: {\n    ...($json.API_BASE ? {} : {}),\n    API_BASE: $('Config WA').item.json.API_BASE,\n    TWILIO_FROM: $('Config WA').item.json.TWILIO_FROM,\n    TWILIO_ACCOUNT_SID: $('Config WA').item.json.TWILIO_ACCOUNT_SID,\n    CURRENCY: $('Config WA').item.json.CURRENCY,\n    from,\n    to,\n    waPhone,\n    text,\n    media,\n    isWasherHint: /^\\s*(ENCONTRADO|TERMINADO|FOTOS)/i.test(text)\n  }\n};"
+      },
+      "id": "norm-wa",
+      "name": "Normalizar Twilio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [160, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.API_BASE }}/v1/orders/find-or-create",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"waPhone\": {{ JSON.stringify($json.waPhone) }},\n  \"displayName\": {{ JSON.stringify($json.waPhone) }}\n}",
+        "options": {}
+      },
+      "id": "find-order",
+      "name": "Find or Create Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Normalizar Twilio').item.json.API_BASE }}/v1/services",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get-services",
+      "name": "Get Services",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const inbound = $('Normalizar Twilio').item.json;\nconst order = $('Find or Create Order').item.json;\nconst services = $('Get Services').item.json;\nconst servicesText = (Array.isArray(services) ? services : []).map(s => `- ${s.code}: ${s.name} ($${(s.priceCents/100).toFixed(0)} ${s.currency.toUpperCase()})`).join('\\n');\n\nconst orderSummary = {\n  id: order.id,\n  publicToken: order.publicToken,\n  status: order.status,\n  locateUrl: order.locateUrl,\n  coverageOk: order.coverageOk,\n  plateLast3: order.plateLast3,\n  carBrand: order.carBrand,\n  carModel: order.carModel,\n  carYear: order.carYear,\n  carColor: order.carColor,\n  carConfirmed: order.carConfirmed,\n  lat: order.lat,\n  lng: order.lng,\n  service: order.service,\n  washer: order.washer,\n  media: order.media,\n};\n\nconst system = `Eres el agente de Car Wash Pro (lavado de auto en calle). Hablas en español mexicano, breve y claro por WhatsApp.\n\nREGLAS DURAS:\n- Nunca inventes que el pago ya se hizo. El pago solo se confirma por Stripe webhook.\n- Guarda progreso con actions.patch (la API es la fuente de verdad).\n- Cobertura: si el usuario dice que está en zona, marca coverageOk=true y status IN_COVERAGE. Si duda, explica la zona piloto.\n- Antes de pedir datos del carro: explicar pago anticipado por transferencia/Stripe + garantía de satisfacción; espera aceptación (paymentAccepted=true, status puede seguir).\n- Datos carro: plateLast3 (3 chars), carBrand, carModel, carYear, carColor → status CAR_INFO.\n- Luego pide confirmación del carro (carConfirmed). Si no es, limpia datos y repite.\n- Ubicación: manda locateUrl y pide que abra el link, marque el pin y confirme en el chat. Cuando diga que ya marcó, status LOCATION_SET (si lat/lng ya existen en order, perfecto).\n- Pago: action create_payment_link. Status AWAITING_PAYMENT hasta webhook.\n- Tras pago (status PAID/ASSIGNED/...): informa que avisarán cuando llegue el lavador y mandarán fotos antes/después.\n- Si el usuario es lavador u mensaje ENCONTRADO/TERMINADO: usa actions de washer.\n- Encuesta final: score BAD|OK|GREAT + comment opcional → action submit_survey.\n\nServicios:\\n${servicesText}\n\nPedido actual (JSON):\\n${JSON.stringify(orderSummary)}\n\nResponde SOLO JSON válido (sin markdown) con esta forma:\n{\n  \"reply\": \"mensaje WhatsApp al usuario\",\n  \"patch\": {\n    \"status\": \"SERVICE_SELECTED|IN_COVERAGE|CAR_INFO|LOCATION_SET|AWAITING_PAYMENT|FOUND|WASHING|DONE|null\",\n    \"serviceCode\": \"basic|premium|detail|null\",\n    \"coverageOk\": true,\n    \"paymentAccepted\": true,\n    \"plateLast3\": \"123\",\n    \"carBrand\": \"\",\n    \"carModel\": \"\",\n    \"carYear\": 2018,\n    \"carColor\": \"\",\n    \"carConfirmed\": true,\n    \"eventType\": \"chat.turn\",\n    \"eventPayload\": {}\n  },\n  \"actions\": [\"generate_car_images\" | \"create_payment_link\" | \"assign_washer\" | \"notify_done\" | \"submit_survey\"],\n  \"survey\": { \"score\": \"OK\", \"comment\": \"\" },\n  \"washerUpdate\": { \"status\": \"FOUND|WASHING|DONE\", \"photoUrls\": [] }\n}\nOmite claves null. actions puede ser [].`;\n\nreturn {\n  json: {\n    ...inbound,\n    order,\n    services,\n    system,\n    userMessage: inbound.text || '(sin texto)'\n  }\n};"
+      },
+      "id": "build-prompt",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.system }}"
+            },
+            {
+              "content": "={{ $json.userMessage }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "openai-agent",
+      "name": "AI Agent (OpenAI)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [1120, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_OPENAI",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const inbound = $('Build Prompt').item.json;\nlet raw = $json.message?.content || $json.text || $json.output || $json;\nif (typeof raw === 'object' && raw.content) raw = raw.content;\nif (Array.isArray(raw)) {\n  raw = raw.map(p => p.text || p.content || '').join('\\n');\n}\nlet parsed;\ntry {\n  const text = typeof raw === 'string' ? raw : JSON.stringify(raw);\n  const match = text.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(match ? match[0] : text);\n} catch (e) {\n  parsed = { reply: typeof raw === 'string' ? raw : 'Perdón, ¿me repites?', patch: null, actions: [] };\n}\nreturn {\n  json: {\n    API_BASE: inbound.API_BASE,\n    TWILIO_FROM: inbound.TWILIO_FROM,\n    TWILIO_ACCOUNT_SID: inbound.TWILIO_ACCOUNT_SID,\n    CURRENCY: inbound.CURRENCY,\n    waPhone: inbound.waPhone,\n    from: inbound.from,\n    orderId: inbound.order.id,\n    publicToken: inbound.order.publicToken,\n    locateUrl: inbound.order.locateUrl,\n    order: inbound.order,\n    mediaIn: inbound.media,\n    reply: parsed.reply || 'Listo, te sigo.',\n    patch: parsed.patch || null,\n    actions: parsed.actions || [],\n    survey: parsed.survey || null,\n    washerUpdate: parsed.washerUpdate || null,\n    car: {\n      brand: (parsed.patch && parsed.patch.carBrand) || inbound.order.carBrand,\n      model: (parsed.patch && parsed.patch.carModel) || inbound.order.carModel,\n      year: (parsed.patch && parsed.patch.carYear) || inbound.order.carYear,\n      color: (parsed.patch && parsed.patch.carColor) || inbound.order.carColor\n    }\n  }\n};"
+      },
+      "id": "parse-ai",
+      "name": "Parse AI JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-patch",
+              "leftValue": "={{ $json.patch }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-patch",
+      "name": "IF Has Patch",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1600, 80]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $json.API_BASE }}/v1/orders/{{ $json.orderId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.patch) }}",
+        "options": {}
+      },
+      "id": "patch-order",
+      "name": "Patch Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1840, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base = $('Parse AI JSON').item.json;\nreturn { json: { ...base } };"
+      },
+      "id": "merge-after-patch",
+      "name": "Continue After Patch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2080, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "gen",
+              "leftValue": "={{ ($json.actions || []).includes('generate_car_images') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-images",
+      "name": "IF Generate Images",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2320, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"dall-e-3\",\n  \"prompt\": {{ JSON.stringify('Photorealistic parked car, front three-quarter view, brand ' + $json.car.brand + ' model ' + $json.car.model + ' year ' + $json.car.year + ' color ' + $json.car.color + ', street parking, no text') }},\n  \"n\": 1,\n  \"size\": \"1024x1024\"\n}",
+        "options": {}
+      },
+      "id": "gen-img",
+      "name": "Generate Car Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2560, -40],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_OPENAI",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base = $('Parse AI JSON').item.json;\nconst img = $json.data?.[0]?.url || null;\nlet reply = base.reply;\nif (img) {\n  reply = `${reply}\\n\\n(Imagen referencia del auto generada; confírmame si se parece.)`;\n}\nreturn { json: { ...base, reply, generatedImageUrl: img } };"
+      },
+      "id": "after-img",
+      "name": "After Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2800, -40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.API_BASE }}/v1/orders/{{ $json.orderId }}/media",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"kind\": \"car_preview_front\",\n  \"url\": {{ JSON.stringify($json.generatedImageUrl) }}\n}",
+        "options": {}
+      },
+      "id": "save-media",
+      "name": "Save Preview Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3040, -40],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "pay",
+              "leftValue": "={{ ($json.actions || []).includes('create_payment_link') || ($('Parse AI JSON').item.json.actions || []).includes('create_payment_link') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-pay",
+      "name": "IF Payment Link",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3280, 80]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base = $('Parse AI JSON').item.json;\nconst order = base.order;\nconst service = order.service;\nconst amount = service?.priceCents || 19900;\nconst name = service?.name || 'Lavado Car Wash Pro';\nreturn {\n  json: {\n    ...base,\n    stripeAmount: amount,\n    stripeName: name\n  }\n};"
+      },
+      "id": "prep-stripe",
+      "name": "Prep Stripe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3520, -40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/checkout/sessions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "mode", "value": "payment" },
+            { "name": "success_url", "value": "={{ $json.API_BASE }}/?paid=1" },
+            { "name": "cancel_url", "value": "={{ $json.API_BASE }}/?paid=0" },
+            { "name": "line_items[0][price_data][currency]", "value": "={{ $json.CURRENCY || 'mxn' }}" },
+            { "name": "line_items[0][price_data][product_data][name]", "value": "={{ $json.stripeName }}" },
+            { "name": "line_items[0][price_data][unit_amount]", "value": "={{ $json.stripeAmount }}" },
+            { "name": "line_items[0][quantity]", "value": "1" },
+            { "name": "metadata[orderId]", "value": "={{ $json.orderId }}" },
+            { "name": "metadata[waPhone]", "value": "={{ $json.waPhone }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "stripe-session",
+      "name": "Create Stripe Checkout",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3760, -40],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_STRIPE",
+          "name": "Stripe Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base = $('Prep Stripe').item.json;\nconst session = $json;\nconst url = session.url;\nconst reply = `${base.reply}\\n\\nPaga aquí para confirmar tu lavado:\\n${url}`;\nreturn {\n  json: {\n    ...base,\n    reply,\n    stripeSessionId: session.id,\n    stripeUrl: url\n  }\n};"
+      },
+      "id": "after-stripe",
+      "name": "After Stripe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4000, -40]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $json.API_BASE }}/v1/orders/{{ $json.orderId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"AWAITING_PAYMENT\",\n  \"stripeSessionId\": {{ JSON.stringify($json.stripeSessionId) }},\n  \"eventType\": \"payment.link_created\"\n}",
+        "options": {}
+      },
+      "id": "mark-awaiting",
+      "name": "Mark Awaiting Payment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4240, -40],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "assign",
+              "leftValue": "={{ ($json.actions || []).includes('assign_washer') || ($('Parse AI JSON').item.json.actions || []).includes('assign_washer') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-assign",
+      "name": "IF Assign Washer",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [4480, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse AI JSON').item.json.API_BASE }}/v1/orders/{{ $('Parse AI JSON').item.json.orderId }}/assign-nearest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "assign-washer",
+      "name": "Assign Nearest Washer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4720, -40],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "survey",
+              "leftValue": "={{ ($json.actions || []).includes('submit_survey') || ($('Parse AI JSON').item.json.actions || []).includes('submit_survey') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-survey",
+      "name": "IF Survey",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [4960, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse AI JSON').item.json.API_BASE }}/v1/orders/{{ $('Parse AI JSON').item.json.orderId }}/survey",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Parse AI JSON').item.json.survey || { score: 'OK' }) }}",
+        "options": {}
+      },
+      "id": "post-survey",
+      "name": "Submit Survey",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [5200, -40],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base = $('Parse AI JSON').item.json;\nlet reply = base.reply;\nlet mediaUrl = null;\ntry { const a = $('After Stripe').item.json; if (a?.reply) reply = a.reply; } catch (e) {}\ntry { const a = $('After Image').item.json; if (a?.reply) reply = a.reply; if (a?.generatedImageUrl) mediaUrl = a.generatedImageUrl; } catch (e) {}\nif (base.locateUrl && /ubicaci[oó]n|mapa|pin|locate/i.test(reply) && !String(reply).includes(base.locateUrl)) {\n  reply = `${reply}\\n\\nMarca tu auto aquí:\\n${base.locateUrl}`;\n}\nreturn {\n  json: {\n    TWILIO_ACCOUNT_SID: base.TWILIO_ACCOUNT_SID,\n    TWILIO_FROM: base.TWILIO_FROM,\n    to: base.from,\n    reply,\n    mediaUrl\n  }\n};"
+      },
+      "id": "prep-twilio-out",
+      "name": "Prep Twilio Out",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5440, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.twilio.com/2010-04-01/Accounts/{{ $json.TWILIO_ACCOUNT_SID }}/Messages.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "From", "value": "={{ $json.TWILIO_FROM }}" },
+            { "name": "To", "value": "={{ $json.to }}" },
+            { "name": "Body", "value": "={{ $json.reply }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "twilio-send",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [5680, 80],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REPLACE_TWILIO",
+          "name": "Twilio Basic"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "has-media",
+              "leftValue": "={{ $json.mediaUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-media-out",
+      "name": "IF Send Image",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [5920, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.twilio.com/2010-04-01/Accounts/{{ $('Prep Twilio Out').item.json.TWILIO_ACCOUNT_SID }}/Messages.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "From", "value": "={{ $('Prep Twilio Out').item.json.TWILIO_FROM }}" },
+            { "name": "To", "value": "={{ $('Prep Twilio Out').item.json.to }}" },
+            { "name": "Body", "value": "Vista de referencia de tu auto" },
+            { "name": "MediaUrl", "value": "={{ $('Prep Twilio Out').item.json.mediaUrl }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "twilio-image",
+      "name": "Send WhatsApp Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [6160, 0],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REPLACE_TWILIO",
+          "name": "Twilio Basic"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const cfg = $('Config Stripe').item.json;\nconst body = $json.body || $json;\nconst type = body.type || '';\nconst obj = body.data?.object || {};\nconst orderId = obj.metadata?.orderId || obj.client_reference_id;\nconst waPhone = obj.metadata?.waPhone;\nconst paid = type === 'checkout.session.completed' || obj.payment_status === 'paid';\nif (!paid || !orderId) {\n  return { json: { skip: true, API_BASE: cfg.API_BASE } };\n}\nreturn {\n  json: {\n    skip: false,\n    API_BASE: cfg.API_BASE,\n    TWILIO_FROM: cfg.TWILIO_FROM,\n    TWILIO_ACCOUNT_SID: cfg.TWILIO_ACCOUNT_SID,\n    orderId,\n    waPhone,\n    stripeSessionId: obj.id,\n    stripePaymentId: obj.payment_intent\n  }\n};"
+      },
+      "id": "norm-stripe",
+      "name": "Normalize Stripe Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [160, 720]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "noskip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-stripe-ok",
+      "name": "IF Stripe Paid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [400, 720]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.API_BASE }}/v1/orders/{{ $json.orderId }}/mark-paid",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"stripeSessionId\": {{ JSON.stringify($json.stripeSessionId) }},\n  \"stripePaymentId\": {{ JSON.stringify($json.stripePaymentId) }}\n}",
+        "options": {}
+      },
+      "id": "mark-paid",
+      "name": "Mark Order Paid",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 640],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Normalize Stripe Event').item.json.API_BASE }}/v1/orders/{{ $('Normalize Stripe Event').item.json.orderId }}/assign-nearest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "assign-after-pay",
+      "name": "Assign After Pay",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 640],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_CARWASH_API",
+          "name": "CarWash API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const cfg = $('Normalize Stripe Event').item.json;\nconst paidOrder = $('Mark Order Paid').item.json;\nconst assigned = $json.order || $json;\nconst customerPhone = paidOrder.customer?.waPhone || cfg.waPhone;\nconst washer = assigned.washer || assigned.order?.washer;\nconst car = `${paidOrder.carBrand || ''} ${paidOrder.carModel || ''} ${paidOrder.carColor || ''} placas ...${paidOrder.plateLast3 || ''}`.trim();\nconst loc = paidOrder.lat != null ? `${paidOrder.lat},${paidOrder.lng}` : 'ver pedido';\nconst locate = paidOrder.locateUrl || `${cfg.API_BASE}/locate/${paidOrder.publicToken}`;\n\nconst customerMsg = '¡Pago confirmado! Tu lavado ya quedó registrado. Te avisaremos cuando el lavador llegue a tu auto. También te enviaremos fotos antes y después del lavado.';\nconst washerMsg = washer ? `Nuevo lavado asignado.\\nPedido: ${paidOrder.id}\\nAuto: ${car}\\nUbicación aprox: ${loc}\\nMapa: ${locate}\\nCuando lo encuentres responde: ENCONTRADO ${paidOrder.id}\\nAl terminar: TERMINADO ${paidOrder.id} y manda fotos.` : null;\n\nreturn {\n  json: {\n    TWILIO_ACCOUNT_SID: cfg.TWILIO_ACCOUNT_SID,\n    TWILIO_FROM: cfg.TWILIO_FROM,\n    customerTo: customerPhone ? (String(customerPhone).startsWith('whatsapp:') ? customerPhone : `whatsapp:${customerPhone}`) : null,\n    customerMsg,\n    washerTo: washer?.waPhone ? (String(washer.waPhone).startsWith('whatsapp:') ? washer.waPhone : `whatsapp:${washer.waPhone}`) : null,\n    washerMsg\n  }\n};"
+      },
+      "id": "prep-paid-msgs",
+      "name": "Prep Paid Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 640]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.twilio.com/2010-04-01/Accounts/{{ $json.TWILIO_ACCOUNT_SID }}/Messages.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "From", "value": "={{ $json.TWILIO_FROM }}" },
+            { "name": "To", "value": "={{ $json.customerTo }}" },
+            { "name": "Body", "value": "={{ $json.customerMsg }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "twilio-customer-paid",
+      "name": "Notify Customer Paid",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1360, 560],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REPLACE_TWILIO",
+          "name": "Twilio Basic"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "has-washer",
+              "leftValue": "={{ $('Prep Paid Messages').item.json.washerTo }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-washer-msg",
+      "name": "IF Washer Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1600, 640]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.twilio.com/2010-04-01/Accounts/{{ $('Prep Paid Messages').item.json.TWILIO_ACCOUNT_SID }}/Messages.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "From", "value": "={{ $('Prep Paid Messages').item.json.TWILIO_FROM }}" },
+            { "name": "To", "value": "={{ $('Prep Paid Messages').item.json.washerTo }}" },
+            { "name": "Body", "value": "={{ $('Prep Paid Messages').item.json.washerMsg }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "twilio-washer",
+      "name": "Notify Washer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1840, 560],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "REPLACE_TWILIO",
+          "name": "Twilio Basic"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Webhook Twilio WhatsApp": {
+      "main": [[{ "node": "Config WA", "type": "main", "index": 0 }]]
+    },
+    "Config WA": {
+      "main": [[{ "node": "Normalizar Twilio", "type": "main", "index": 0 }]]
+    },
+    "Normalizar Twilio": {
+      "main": [[{ "node": "Find or Create Order", "type": "main", "index": 0 }]]
+    },
+    "Find or Create Order": {
+      "main": [[{ "node": "Get Services", "type": "main", "index": 0 }]]
+    },
+    "Get Services": {
+      "main": [[{ "node": "Build Prompt", "type": "main", "index": 0 }]]
+    },
+    "Build Prompt": {
+      "main": [[{ "node": "AI Agent (OpenAI)", "type": "main", "index": 0 }]]
+    },
+    "AI Agent (OpenAI)": {
+      "main": [[{ "node": "Parse AI JSON", "type": "main", "index": 0 }]]
+    },
+    "Parse AI JSON": {
+      "main": [[{ "node": "IF Has Patch", "type": "main", "index": 0 }]]
+    },
+    "IF Has Patch": {
+      "main": [
+        [{ "node": "Patch Order", "type": "main", "index": 0 }],
+        [{ "node": "Continue After Patch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Patch Order": {
+      "main": [[{ "node": "Continue After Patch", "type": "main", "index": 0 }]]
+    },
+    "Continue After Patch": {
+      "main": [[{ "node": "IF Generate Images", "type": "main", "index": 0 }]]
+    },
+    "IF Generate Images": {
+      "main": [
+        [{ "node": "Generate Car Image", "type": "main", "index": 0 }],
+        [{ "node": "IF Payment Link", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Car Image": {
+      "main": [[{ "node": "After Image", "type": "main", "index": 0 }]]
+    },
+    "After Image": {
+      "main": [[{ "node": "Save Preview Media", "type": "main", "index": 0 }]]
+    },
+    "Save Preview Media": {
+      "main": [[{ "node": "IF Payment Link", "type": "main", "index": 0 }]]
+    },
+    "IF Payment Link": {
+      "main": [
+        [{ "node": "Prep Stripe", "type": "main", "index": 0 }],
+        [{ "node": "IF Assign Washer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prep Stripe": {
+      "main": [[{ "node": "Create Stripe Checkout", "type": "main", "index": 0 }]]
+    },
+    "Create Stripe Checkout": {
+      "main": [[{ "node": "After Stripe", "type": "main", "index": 0 }]]
+    },
+    "After Stripe": {
+      "main": [[{ "node": "Mark Awaiting Payment", "type": "main", "index": 0 }]]
+    },
+    "Mark Awaiting Payment": {
+      "main": [[{ "node": "IF Assign Washer", "type": "main", "index": 0 }]]
+    },
+    "IF Assign Washer": {
+      "main": [
+        [{ "node": "Assign Nearest Washer", "type": "main", "index": 0 }],
+        [{ "node": "IF Survey", "type": "main", "index": 0 }]
+      ]
+    },
+    "Assign Nearest Washer": {
+      "main": [[{ "node": "IF Survey", "type": "main", "index": 0 }]]
+    },
+    "IF Survey": {
+      "main": [
+        [{ "node": "Submit Survey", "type": "main", "index": 0 }],
+        [{ "node": "Prep Twilio Out", "type": "main", "index": 0 }]
+      ]
+    },
+    "Submit Survey": {
+      "main": [[{ "node": "Prep Twilio Out", "type": "main", "index": 0 }]]
+    },
+    "Prep Twilio Out": {
+      "main": [[{ "node": "Send WhatsApp Reply", "type": "main", "index": 0 }]]
+    },
+    "Send WhatsApp Reply": {
+      "main": [[{ "node": "IF Send Image", "type": "main", "index": 0 }]]
+    },
+    "IF Send Image": {
+      "main": [
+        [{ "node": "Send WhatsApp Image", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Webhook Stripe Paid": {
+      "main": [[{ "node": "Config Stripe", "type": "main", "index": 0 }]]
+    },
+    "Config Stripe": {
+      "main": [[{ "node": "Normalize Stripe Event", "type": "main", "index": 0 }]]
+    },
+    "Normalize Stripe Event": {
+      "main": [[{ "node": "IF Stripe Paid", "type": "main", "index": 0 }]]
+    },
+    "IF Stripe Paid": {
+      "main": [
+        [{ "node": "Mark Order Paid", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Mark Order Paid": {
+      "main": [[{ "node": "Assign After Pay", "type": "main", "index": 0 }]]
+    },
+    "Assign After Pay": {
+      "main": [[{ "node": "Prep Paid Messages", "type": "main", "index": 0 }]]
+    },
+    "Prep Paid Messages": {
+      "main": [[{ "node": "Notify Customer Paid", "type": "main", "index": 0 }]]
+    },
+    "Notify Customer Paid": {
+      "main": [[{ "node": "IF Washer Exists", "type": "main", "index": 0 }]]
+    },
+    "IF Washer Exists": {
+      "main": [
+        [{ "node": "Notify Washer", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  }
+}

@@ -33,6 +33,14 @@ const createOrderSchema = z.object({
   displayName: z.string().optional(),
 });
 
+function withLocateUrl<T extends { publicToken: string }>(order: T) {
+  const base = process.env.PUBLIC_BASE_URL || '';
+  return {
+    ...order,
+    locateUrl: `${base}/locate/${order.publicToken}`,
+  };
+}
+
 api.post('/v1/orders', async (req, res) => {
   const parsed = createOrderSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json(parsed.error.flatten());
@@ -56,14 +64,53 @@ api.post('/v1/orders', async (req, res) => {
         create: { type: 'order.created', payload: { waPhone: customer.waPhone } },
       },
     },
-    include: { customer: true, service: true },
+    include: { customer: true, service: true, washer: true, media: true },
   });
 
-  const base = process.env.PUBLIC_BASE_URL || '';
-  return res.status(201).json({
-    ...order,
-    locateUrl: `${base}/locate/${order.publicToken}`,
+  return res.status(201).json(withLocateUrl(order));
+});
+
+/** Resume active order for a WhatsApp user, or create a new one. */
+api.post('/v1/orders/find-or-create', async (req, res) => {
+  const parsed = createOrderSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+
+  const customer = await prisma.customer.upsert({
+    where: { waPhone: parsed.data.waPhone },
+    create: {
+      waPhone: parsed.data.waPhone,
+      displayName: parsed.data.displayName,
+    },
+    update: {
+      displayName: parsed.data.displayName ?? undefined,
+    },
   });
+
+  const active = await prisma.order.findFirst({
+    where: {
+      customerId: customer.id,
+      status: { notIn: [OrderStatus.SURVEYED, OrderStatus.CANCELLED] },
+    },
+    orderBy: { createdAt: 'desc' },
+    include: { customer: true, service: true, washer: true, media: true, survey: true },
+  });
+
+  if (active) {
+    return res.json({ ...withLocateUrl(active), created: false });
+  }
+
+  const order = await prisma.order.create({
+    data: {
+      customerId: customer.id,
+      status: OrderStatus.NEW,
+      events: {
+        create: { type: 'order.created', payload: { waPhone: customer.waPhone } },
+      },
+    },
+    include: { customer: true, service: true, washer: true, media: true, survey: true },
+  });
+
+  return res.status(201).json({ ...withLocateUrl(order), created: true });
 });
 
 api.get('/v1/orders/:id', async (req, res) => {
