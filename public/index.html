@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Car Wash Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #0b1f2a;
+      --foam: #e8f4f8;
+      --accent: #00a3c4;
+      --accent-2: #ff6b35;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Manrope, sans-serif;
+      color: var(--foam);
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, rgba(0,163,196,.35), transparent 55%),
+        radial-gradient(ellipse 70% 50% at 90% 80%, rgba(255,107,53,.25), transparent 50%),
+        linear-gradient(160deg, #06131a 0%, #0b1f2a 45%, #123044 100%);
+      display: grid;
+      place-items: center;
+      padding: 2rem;
+    }
+    .wrap { max-width: 28rem; text-align: center; }
+    .brand {
+      font-family: "Bebas Neue", sans-serif;
+      font-size: clamp(3rem, 12vw, 4.5rem);
+      letter-spacing: .04em;
+      margin: 0;
+      line-height: .95;
+    }
+    p {
+      margin: 1rem 0 2rem;
+      opacity: .85;
+      line-height: 1.5;
+    }
+    a.cta {
+      display: inline-block;
+      background: var(--accent);
+      color: #031015;
+      text-decoration: none;
+      font-weight: 700;
+      padding: .95rem 1.6rem;
+      border-radius: .4rem;
+      transition: transform .2s ease, background .2s ease;
+    }
+    a.cta:hover { transform: translateY(-2px); background: #19b7d6; }
+    .hint { margin-top: 1.5rem; font-size: .85rem; opacity: .55; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1 class="brand">Car Wash Pro</h1>
+    <p>Lavado de auto en calle. Escanea el QR y pide tu servicio por WhatsApp.</p>
+    <a class="cta" id="wa" href="#">Pedir por WhatsApp</a>
+    <p class="hint">Piloto · zona limitada</p>
+  </main>
+  <script>
+    (async () => {
+      const a = document.getElementById('wa');
+      try {
+        const res = await fetch('/public/config');
+        const data = await res.json();
+        a.href = data.whatsappStartUrl || '#';
+      } catch {
+        a.textContent = 'Configura WHATSAPP_START_URL';
+      }
+    })();
+  </script>
+</body>
+</html>
